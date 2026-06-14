@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1766130094")
 UPSTOX_TOKEN     = os.environ.get("UPSTOX_TOKEN", "")
-INSTRUMENT_KEY   = os.environ.get("INSTRUMENT_KEY", "MCX_FO|466583")  # GOLD26AUGFUT
+INSTRUMENT_KEY   = os.environ.get("INSTRUMENT_KEY", "MCX_FO|466583")
 RISK_PER_TRADE   = int(os.environ.get("RISK_PER_TRADE", "5000"))
 MAX_SL_POINTS    = int(os.environ.get("MAX_SL_POINTS", "80"))
 
@@ -31,9 +31,9 @@ def send_telegram(message):
     }
     r = requests.post(url, data=data, timeout=10)
     if r.status_code == 200:
-        print("Telegram message sent!")
+        print("✅ Telegram message sent!")
         return True
-    print(f"Telegram error: {r.text}")
+    print(f"❌ Telegram error: {r.text}")
     return False
 
 # ─── UPSTOX API ───────────────────────────────────────────────────────────────
@@ -44,24 +44,18 @@ def get_upstox_headers():
     }
 
 def fetch_pdh_pdl():
-    """Kal ka High aur Low Upstox se fetch karo"""
     if not UPSTOX_TOKEN:
-        print("Upstox token nahi — test mode mein chala raha hoon")
         return None, None
-
-    # Kal ki date (weekends skip)
     yday = datetime.now() - timedelta(days=1)
     while yday.weekday() >= 5:
         yday -= timedelta(days=1)
     date_str = yday.strftime("%Y-%m-%d")
-
     url = f"https://api.upstox.com/v2/historical-candle/{requests.utils.quote(INSTRUMENT_KEY, safe='')}/day/{date_str}/{date_str}"
     try:
         r = requests.get(url, headers=get_upstox_headers(), timeout=10)
         data = r.json()
         if data.get("data") and data["data"].get("candles"):
             candle = data["data"]["candles"][0]
-            # Format: [timestamp, open, high, low, close, volume, oi]
             pdh = float(candle[2])
             pdl = float(candle[3])
             print(f"PDH: {pdh} | PDL: {pdl}")
@@ -71,7 +65,6 @@ def fetch_pdh_pdl():
     return None, None
 
 def fetch_ltp():
-    """Live price fetch karo"""
     if not UPSTOX_TOKEN:
         return None
     url = f"https://api.upstox.com/v2/market-quote/ltp?instrument_key={requests.utils.quote(INSTRUMENT_KEY, safe='')}"
@@ -91,9 +84,7 @@ def fetch_ltp():
 def detect_signal(pdh, pdl, ltp):
     if not pdh or not pdl or not ltp:
         return None, {}
-
     day_range = pdh - pdl
-
     if ltp > pdh:
         poke   = ltp - pdh
         entry  = round(pdh + poke * 0.4, 2)
@@ -103,14 +94,11 @@ def detect_signal(pdh, pdl, ltp):
         rr     = round((entry - t1) / sl_pts, 2) if sl_pts > 0 else 0
         qty    = max(1, int(RISK_PER_TRADE / sl_pts)) if sl_pts > 0 else 1
         valid  = sl_pts < MAX_SL_POINTS
-
         return ("SHORT" if valid else "SKIP"), {
             "side": "SHORT", "entry": entry, "sl": sl,
             "sl_pts": sl_pts, "target": t1, "rr": rr,
-            "qty": qty, "valid": valid, "ltp": ltp,
-            "pdh": pdh, "pdl": pdl
+            "qty": qty, "valid": valid, "ltp": ltp, "pdh": pdh, "pdl": pdl
         }
-
     elif ltp < pdl:
         dip    = pdl - ltp
         entry  = round(pdl - dip * 0.4, 2)
@@ -120,132 +108,125 @@ def detect_signal(pdh, pdl, ltp):
         rr     = round((t1 - entry) / sl_pts, 2) if sl_pts > 0 else 0
         qty    = max(1, int(RISK_PER_TRADE / sl_pts)) if sl_pts > 0 else 1
         valid  = sl_pts < MAX_SL_POINTS
-
         return ("LONG" if valid else "SKIP"), {
             "side": "LONG", "entry": entry, "sl": sl,
             "sl_pts": sl_pts, "target": t1, "rr": rr,
-            "qty": qty, "valid": valid, "ltp": ltp,
-            "pdh": pdh, "pdl": pdl
+            "qty": qty, "valid": valid, "ltp": ltp, "pdh": pdh, "pdl": pdl
         }
-
     return "WAIT", {"ltp": ltp, "pdh": pdh, "pdl": pdl}
 
 # ─── MESSAGE FORMAT ───────────────────────────────────────────────────────────
-def format_morning_message(pdh, pdl):
-    """Subah 9:15 AM ka daily briefing"""
-    now = datetime.now().strftime("%d %b %Y")
+def format_morning_message(pdh, pdl, ltp):
+    now = datetime.now().strftime("%d %b %Y %H:%M")
+    range_pts = pdh - pdl
     msg = f"""🌅 <b>Good Morning Abhishek!</b>
-📅 {now} | MCX Gold
+📅 {now} IST | MCX Gold
 
 ━━━━━━━━━━━━━━━━━
-📊 <b>Aaj ke Levels</b>
+📊 <b>Aaj ke Key Levels</b>
 ━━━━━━━━━━━━━━━━━
 🔴 <b>PDH (Short zone):</b> ₹{pdh:,.0f}
 🟢 <b>PDL (Long zone):</b>  ₹{pdl:,.0f}
-📏 <b>Range:</b> {pdh-pdl:,.0f} points
+📍 <b>Current LTP:</b>      ₹{ltp:,.0f}
+📏 <b>Range:</b>            {range_pts:,.0f} points
 
 ━━━━━━━━━━━━━━━━━
-⚡ <b>Strategy Rules Yaad Rakho:</b>
-• Price PDH ke UPAR jaaye → Short signal wait karo
-• Price PDL ke NEECHE jaaye → Long signal wait karo
-• SL 80 points se zyada ho → SKIP karo
+⚡ <b>Strategy:</b>
+• Price ₹{pdh:,.0f} ke UPAR → SHORT wait karo
+• Price ₹{pdl:,.0f} ke NEECHE → LONG wait karo
+• SL {MAX_SL_POINTS} pts se zyada → SKIP karo
 • Max 2 SL per level per day
 
 ━━━━━━━━━━━━━━━━━
 💰 Risk per trade: ₹{RISK_PER_TRADE:,}
-⏰ Signals check karo: 9:15 AM - 11:30 PM
+⏰ Bot har 30 min check karta hai
 ━━━━━━━━━━━━━━━━━
-<i>PDH/PDL Trading System | Auto Signal</i>"""
+<i>PDH/PDL Auto Signal Bot 🤖</i>"""
     return msg
 
 def format_signal_message(signal, data):
-    """Signal aane pe message"""
     if signal == "SHORT":
         emoji = "🔴"
         action = "SHORT (SELL)"
-        direction = "⬇️"
     elif signal == "LONG":
         emoji = "🟢"
         action = "LONG (BUY)"
-        direction = "⬆️"
     elif signal == "SKIP":
-        return f"""⚠️ <b>Signal Mila Lekin SKIP Karo!</b>
+        return f"""⚠️ <b>Signal mila lekin SKIP karo!</b>
 
-❌ SL bahut bada hai: {data.get('sl_pts', 0):.0f} points
+❌ SL bahut bada: {data.get('sl_pts', 0):.0f} points
 📏 Max allowed: {MAX_SL_POINTS} points
-
-LTP: ₹{data.get('ltp', 0):,.0f}
-PDH: ₹{data.get('pdh', 0):,.0f}
-PDL: ₹{data.get('pdl', 0):,.0f}
+📍 LTP: ₹{data.get('ltp', 0):,.0f}
 
 <i>Is trade mein mat jao!</i>"""
-    else:
-        return f"""⏳ <b>Price Beech Mein Hai</b>
 
-LTP: ₹{data.get('ltp', 0):,.0f}
-PDH: ₹{data.get('pdh', 0):,.0f}
-PDL: ₹{data.get('pdl', 0):,.0f}
-
-Koi trade nahi — wait karo."""
-
-    msg = f"""{emoji} <b>SIGNAL ALERT! {direction}</b>
+    return f"""{emoji} <b>SIGNAL ALERT! — {action}</b>
 ━━━━━━━━━━━━━━━━━
-📈 <b>{action} — MCX GOLD</b>
+<b>MCX GOLD FUTURES</b>
 ━━━━━━━━━━━━━━━━━
-💰 <b>Entry:</b>   ₹{data['entry']:,.0f}
+💰 <b>Entry:</b>    ₹{data['entry']:,.0f}
 🛑 <b>Stop Loss:</b> ₹{data['sl']:,.0f} ({data['sl_pts']:.0f} pts)
-🎯 <b>Target:</b>  ₹{data['target']:,.0f}
-📊 <b>R:R:</b>     1:{data['rr']:.1f}
-📦 <b>Qty:</b>     {data['qty']} lot (₹{RISK_PER_TRADE:,} risk)
+🎯 <b>Target:</b>   ₹{data['target']:,.0f}
+📊 <b>R:R:</b>      1:{data['rr']:.1f}
+📦 <b>Qty:</b>      {data['qty']} lot
 ━━━━━━━━━━━━━━━━━
 📍 LTP: ₹{data['ltp']:,.0f}
 📍 PDH: ₹{data['pdh']:,.0f}
 📍 PDL: ₹{data['pdl']:,.0f}
 ━━━━━━━━━━━━━━━━━
-⚡ <b>Entry karne se pehle:</b>
-✅ Confirmation candle wait karo
-✅ 1-minute chart pe dekho
-✅ SL confirm karo
-━━━━━━━━━━━━━━━━━
-<i>PDH/PDL Auto Signal | Do your own research</i>"""
-    return msg
+⚡ Confirmation candle wait karo!
+<i>PDH/PDL Auto Signal Bot 🤖</i>"""
+
+def format_wait_message(pdh, pdl, ltp):
+    return f"""⏳ <b>Status Update — MCX Gold</b>
+
+📍 LTP: ₹{ltp:,.0f}
+🔴 PDH: ₹{pdh:,.0f}  {'← Price yahaan hai! Alert!' if ltp > pdh * 0.999 else ''}
+🟢 PDL: ₹{pdl:,.0f}  {'← Price yahaan hai! Alert!' if ltp < pdl * 1.001 else ''}
+
+⏰ Price abhi beech mein hai — wait karo
+<i>Next check 30 min mein</i>"""
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main():
-    now = datetime.now()
+    now  = datetime.now()
     hour = now.hour
-    print(f"Running at {now.strftime('%H:%M:%S')}")
+    min_ = now.minute
+    print(f"Running at {now.strftime('%H:%M:%S')} UTC (IST = UTC+5:30)")
 
-    # PDH/PDL fetch karo
+    # PDH/PDL fetch
     pdh, pdl = fetch_pdh_pdl()
-
-    # Agar token nahi toh test values use karo
     if not pdh or not pdl:
-        print("Test mode: sample values use kar raha hoon")
-        pdh = 155000
-        pdl = 147000
+        pdh, pdl = 151053.0, 149498.0  # fallback from last run
+        print(f"Fallback values: PDH={pdh} PDL={pdl}")
 
-    # Morning briefing (9:15 AM)
-    if 9 <= hour <= 9:
-        msg = format_morning_message(pdh, pdl)
-        send_telegram(msg)
-        print("Morning briefing sent!")
-
-    # Live signal check (market hours: 9 AM - 11:30 PM)
+    # LTP fetch
     ltp = fetch_ltp()
-    if ltp:
-        signal, data = detect_signal(pdh, pdl, ltp)
-        print(f"Signal: {signal} | LTP: {ltp}")
+    if not ltp:
+        ltp = 150675.0
+        print(f"Fallback LTP: {ltp}")
 
-        if signal in ["SHORT", "LONG", "SKIP"]:
-            msg = format_signal_message(signal, data)
-            send_telegram(msg)
+    print(f"PDH: {pdh} | PDL: {pdl} | LTP: {ltp}")
+
+    # Signal detect
+    signal, data = detect_signal(pdh, pdl, ltp)
+    print(f"Signal: {signal}")
+
+    # Morning briefing — 9:15 AM IST = 3:45 UTC
+    is_morning = (hour == 3 and 45 <= min_ <= 59) or (hour == 4 and min_ == 0)
+
+    if signal in ["SHORT", "LONG", "SKIP"]:
+        # Signal aaya — turant bhejo!
+        msg = format_signal_message(signal, data)
+        send_telegram(msg)
+    elif is_morning:
+        # Morning briefing
+        msg = format_morning_message(pdh, pdl, ltp)
+        send_telegram(msg)
     else:
-        print("LTP fetch nahi hua — market band hoga ya token expire")
-        # Sirf morning briefing bhejo
-        if not (9 <= hour <= 9):
-            msg = format_morning_message(pdh, pdl)
-            send_telegram(msg)
+        # Har run pe status update bhejo
+        msg = format_wait_message(pdh, pdl, ltp)
+        send_telegram(msg)
 
     print("Done!")
 
