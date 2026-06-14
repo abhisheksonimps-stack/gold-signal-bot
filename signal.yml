@@ -1,0 +1,55 @@
+name: PDH PDL Gold Signal Bot
+
+on:
+  schedule:
+    # Roz in times pe run karo (UTC time — India = UTC+5:30)
+    - cron: '45 3 * * 1-5'   # 9:15 AM IST - Morning briefing
+    - cron: '0 4 * * 1-5'    # 9:30 AM IST - Signal check
+    - cron: '30 4 * * 1-5'   # 10:00 AM IST
+    - cron: '0 5 * * 1-5'    # 10:30 AM IST
+    - cron: '30 5 * * 1-5'   # 11:00 AM IST
+    - cron: '0 6 * * 1-5'    # 11:30 AM IST
+    - cron: '30 6 * * 1-5'   # 12:00 PM IST
+    - cron: '0 7 * * 1-5'    # 12:30 PM IST
+    - cron: '30 7 * * 1-5'   # 1:00 PM IST
+    - cron: '0 8 * * 1-5'    # 1:30 PM IST
+    - cron: '30 8 * * 1-5'   # 2:00 PM IST
+    - cron: '0 9 * * 1-5'    # 2:30 PM IST
+    - cron: '30 9 * * 1-5'   # 3:00 PM IST
+    - cron: '0 10 * * 1-5'   # 3:30 PM IST
+    - cron: '30 10 * * 1-5'  # 4:00 PM IST
+    - cron: '0 11 * * 1-5'   # 4:30 PM IST
+    - cron: '30 11 * * 1-5'  # 5:00 PM IST
+    - cron: '0 12 * * 1-5'   # 5:30 PM IST
+    - cron: '0 16 * * 1-5'   # 9:30 PM IST - Evening MCX
+    - cron: '30 16 * * 1-5'  # 10:00 PM IST
+    - cron: '0 17 * * 1-5'   # 10:30 PM IST
+    - cron: '30 17 * * 1-5'  # 11:00 PM IST
+    - cron: '0 18 * * 1-5'   # 11:30 PM IST - Last check
+
+  workflow_dispatch:  # Manual trigger bhi kar sakte ho
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run signal bot
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          UPSTOX_TOKEN:     ${{ secrets.UPSTOX_TOKEN }}
+          INSTRUMENT_KEY:   ${{ secrets.INSTRUMENT_KEY }}
+          RISK_PER_TRADE:   ${{ secrets.RISK_PER_TRADE }}
+          MAX_SL_POINTS:    ${{ secrets.MAX_SL_POINTS }}
+        run: python signal.py
