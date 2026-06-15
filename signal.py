@@ -33,6 +33,10 @@ INSTRUMENTS = [
 
 SWING_LOOKBACK = 3   # swing high/low confirm karne ke liye dono taraf kitni candles
 
+# ─── FILTERS (Gautam ki strategy ke hisaab se) ──────────────────────────────
+MIN_RR = 1.5                 # Isse kam R:R waale signal SKIP (1:0.6 jaise ghatiya hatao)
+MAX_SIGNALS_PER_LEVEL = 2    # Ek din, ek instrument, ek level pe max itne signal
+
 # ─── TELEGRAM SEND ──────────────────────────────────────────────────────────
 def send_telegram(message):
     if not TELEGRAM_TOKEN:
@@ -125,20 +129,22 @@ def swing_high_above(candles, start_idx, entry):
             return hi
     return None
 
-# ─── STRATEGY: scan candles for a confirmed signal ──────────────────────────
+# ─── STRATEGY: scan candles for confirmed signals ───────────────────────────
 def detect_signal(candles, pdh, pdl, max_sl):
     """
     Pure 1-minute candles pe strategy logic chalata hai.
     SHORT: kisi candle ka high PDH ke upar -> next candle RED ->
            uske agle candle ne RED ka low break kiya = ENTRY.
     LONG:  ulta, PDL ke neeche -> GREEN -> high break.
-    Sirf aakhri confirmed signal return karta hai (latest wala).
-    Returns dict ya None.
+    SAARE valid signals return karta hai (chronological order mein) jo:
+      - SL <= max_sl, aur
+      - R:R >= MIN_RR  (ghatiya 1:0.6 jaise signal skip)
+    Returns list of dicts (empty list agar kuch nahi).
     """
     if not candles or pdh is None or pdl is None:
-        return None
+        return []
 
-    found = None
+    signals = []
     n = len(candles)
 
     for j in range(1, n - 1):
@@ -157,12 +163,13 @@ def detect_signal(candles, pdh, pdl, max_sl):
                     target = swing_low_below(candles, j+2, entry)
                     if target is not None:
                         rr = round((entry - target) / sl_pts, 2)
-                        found = {
-                            "side": "SHORT", "entry": round(entry, 2),
-                            "sl": round(sl, 2), "sl_pts": sl_pts,
-                            "target": round(target, 2), "rr": rr,
-                            "candle_time": next_c["ts"],
-                        }
+                        if rr >= MIN_RR:                               # R:R filter
+                            signals.append({
+                                "side": "SHORT", "entry": round(entry, 2),
+                                "sl": round(sl, 2), "sl_pts": sl_pts,
+                                "target": round(target, 2), "rr": rr,
+                                "candle_time": next_c["ts"],
+                            })
 
         # ── LONG setup ──
         if prev_c["low"] < pdl and curr_c["close"] > curr_c["open"]:    # green candle below PDL
@@ -175,14 +182,15 @@ def detect_signal(candles, pdh, pdl, max_sl):
                     target = swing_high_above(candles, j+2, entry)
                     if target is not None:
                         rr = round((target - entry) / sl_pts, 2)
-                        found = {
-                            "side": "LONG", "entry": round(entry, 2),
-                            "sl": round(sl, 2), "sl_pts": sl_pts,
-                            "target": round(target, 2), "rr": rr,
-                            "candle_time": next_c["ts"],
-                        }
+                        if rr >= MIN_RR:                               # R:R filter
+                            signals.append({
+                                "side": "LONG", "entry": round(entry, 2),
+                                "sl": round(sl, 2), "sl_pts": sl_pts,
+                                "target": round(target, 2), "rr": rr,
+                                "candle_time": next_c["ts"],
+                            })
 
-    return found
+    return signals
 
 # ─── SKIP detection (signal bana par SL bada) ───────────────────────────────
 def detect_skip(candles, pdh, pdl, max_sl):
@@ -302,17 +310,38 @@ def main():
             send_telegram(msg_morning(inst, pdh, pdl, ltp))
             state[morning_key] = True
 
-        # Signal detection
-        sig = detect_signal(candles, pdh, pdl, inst["max_sl"])
-        if sig:
-            # dedup: ek confirmation candle pe ek hi baar bhejo
-            sig_id = f"{name}_{today}_{sig['side']}_{sig['candle_time']}"
-            if not state.get(sig_id):
+        # Signal detection — ab list aati hai (R:R filter already laga hua)
+        signals = detect_signal(candles, pdh, pdl, inst["max_sl"])
+
+        if signals:
+            sent_any = False
+            for sig in signals:
+                # "level" = SHORT (PDH side) ya LONG (PDL side)
+                level = sig["side"]
+
+                # Is din, is instrument, is level pe ab tak kitne bheje?
+                count_key = f"{name}_{today}_count_{level}"
+                sent_count = state.get(count_key, 0)
+
+                # Daily limit cross? -> us level pe ruko
+                if sent_count >= MAX_SIGNALS_PER_LEVEL:
+                    continue
+
+                # Dedup: ek confirmation candle pe ek hi baar
+                sig_id = f"{name}_{today}_{level}_{sig['candle_time']}"
+                if state.get(sig_id):
+                    continue
+
+                # Bhejo
                 send_telegram(msg_signal(inst, sig))
                 state[sig_id] = True
-                print(f"{name}: {sig['side']} signal bheja.")
-            else:
-                print(f"{name}: signal already bheja (dup).")
+                state[count_key] = sent_count + 1
+                sent_any = True
+                print(f"{name}: {level} signal bheja "
+                      f"(#{sent_count+1}/{MAX_SIGNALS_PER_LEVEL}, R:R 1:{sig['rr']}).")
+
+            if not sent_any:
+                print(f"{name}: naye signal nahi (limit/dup ya R:R<{MIN_RR}).")
         else:
             # SKIP check (sirf tab jab koi valid signal nahi tha)
             skip = detect_skip(candles, pdh, pdl, inst["max_sl"])
@@ -323,7 +352,7 @@ def main():
                     state[skip_id] = True
                     print(f"{name}: SKIP bheja.")
             else:
-                print(f"{name}: koi signal nahi.")
+                print(f"{name}: koi valid signal nahi (R:R<{MIN_RR} ya confirmation nahi).")
 
     save_state(state)
     print("\nDone!")
