@@ -17,7 +17,32 @@ jo bhi fresh signal bana, wo bhejta hai (duplicate avoid karta hai).
 import os
 import json
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# ─── IST TIME HELPER ────────────────────────────────────────────────────────
+# GitHub Actions UTC mein chalta hai. India = UTC + 5:30. Isliye har jagah
+# IST use karte hain taaki time aur date sahi dikhe (warna "09:10 UTC" jaise
+# galat time dikhta tha).
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def now_ist():
+    return datetime.now(IST)
+
+def fmt_candle_time(ts):
+    """
+    Upstox candle timestamp ko sahi IST HH:MM mein convert karta hai.
+    Timestamp UTC (+00:00 / Z) ya IST (+05:30) — dono handle karta hai.
+    """
+    try:
+        s = str(ts).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            # offset nahi hai -> maan lo UTC tha
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(IST).strftime("%H:%M")
+    except Exception:
+        # fallback: purana behaviour
+        return str(ts)[11:16]
 
 # ─── TELEGRAM ───────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
@@ -62,7 +87,7 @@ def fetch_pdh_pdl(key):
     """Previous trading day ka high/low."""
     if not UPSTOX_TOKEN:
         return None, None
-    yday = datetime.now() - timedelta(days=1)
+    yday = now_ist() - timedelta(days=1)
     while yday.weekday() >= 5:        # weekend skip
         yday -= timedelta(days=1)
     d = yday.strftime("%Y-%m-%d")
@@ -229,7 +254,7 @@ def save_state(state):
 
 # ─── MESSAGES ───────────────────────────────────────────────────────────────
 def msg_morning(inst, pdh, pdl, ltp):
-    now = datetime.now().strftime("%d %b %Y %H:%M")
+    now = now_ist().strftime("%d %b %Y %H:%M")
     rng = pdh - pdl
     return f"""🌅 <b>Good Morning Abhishek!</b>
 📅 {now} IST | MCX {inst['name']}
@@ -257,7 +282,7 @@ def msg_morning(inst, pdh, pdl, ltp):
 def msg_signal(inst, d):
     emoji = "🔴" if d["side"] == "SHORT" else "🟢"
     action = "SHORT (SELL)" if d["side"] == "SHORT" else "LONG (BUY)"
-    ctime = str(d.get("candle_time", ""))[11:16]
+    ctime = fmt_candle_time(d.get("candle_time", ""))
     return f"""{emoji} <b>SIGNAL — {action}</b>
 ━━━━━━━━━━━━━━━━━
 <b>MCX {inst['name']}</b>  (confirmation {ctime})
@@ -282,11 +307,11 @@ Signal bana ({d['side']}) lekin SL bahut bada:
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────
 def main():
-    now  = datetime.now()
+    now  = now_ist()
     hour, minute = now.hour, now.minute
-    # Morning briefing window: 9:15 IST = 3:45 UTC
-    is_morning = (hour == 3 and 45 <= minute <= 59) or (hour == 4 and minute == 0)
-    print(f"Running {now.strftime('%H:%M')} UTC | morning={is_morning}")
+    # Morning briefing window: 9:15 IST (ab seedha IST, UTC conversion nahi)
+    is_morning = (hour == 9 and 0 <= minute <= 30)
+    print(f"Running {now.strftime('%H:%M')} IST | morning={is_morning}")
 
     state = load_state()
     today = now.strftime("%Y-%m-%d")
