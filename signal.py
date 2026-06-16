@@ -46,7 +46,7 @@ def fmt_candle_time(ts):
 
 # ─── TELEGRAM ───────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1766130094")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")  # GitHub Secret se aata hai
 UPSTOX_TOKEN     = os.environ.get("UPSTOX_TOKEN", "")
 
 # ─── DONO INSTRUMENTS ───────────────────────────────────────────────────────
