@@ -49,12 +49,16 @@ TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")  # GitHub Secret se aata hai
 UPSTOX_TOKEN     = os.environ.get("UPSTOX_TOKEN", "")
 
-# ─── DONO INSTRUMENTS ───────────────────────────────────────────────────────
-# Har instrument ka apna key, risk, aur max-SL.
+# ─── INSTRUMENTS ────────────────────────────────────────────────────────────
+# Sirf PETAL — kyunki Gold ka 1 lot ~14 lakh ka hai (50k capital mein nahi aata).
+# Petal chhota contract hai, chhote account ke liye sahi.
+# Risk 500 = 50,000 capital ka sirf 1% per trade (safe).
 INSTRUMENTS = [
-    {"name": "GOLD",  "key": "MCX_FO|466583", "risk": 5000, "max_sl": 80},   # GOLD26AUGFUT
-    {"name": "PETAL", "key": "MCX_FO|552721", "risk": 1000, "max_sl": 30},   # GOLDPETAL26JULFUT
+    {"name": "PETAL", "key": "MCX_FO|552721", "risk": 500, "max_sl": 30},   # GOLDPETAL26JULFUT
 ]
+
+# Gold band kar diya (capital kam hai). Aage paisa badhe to ye line wapas add karna:
+#   {"name": "GOLD", "key": "MCX_FO|466583", "risk": 5000, "max_sl": 80},
 
 SWING_LOOKBACK = 3   # swing high/low confirm karne ke liye dono taraf kitni candles
 
